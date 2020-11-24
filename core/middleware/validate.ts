@@ -2,14 +2,22 @@ import Context from "../context";
 import {Middleware} from "../middleware";
 import * as joi from 'joi';
 import {Schema, SchemaLike} from "joi";
-import {KatoRuntimeError} from "../error";
+import {KatoError} from "../error";
 
-const debug = require('debug')('kato:middle:validate');
+//参数验证异常
+export class KatoValidateError extends KatoError {
+  constructor(message: string = "非法的API参数调用") {
+    super(message, -3);
+    this.name = 'KatoValidateError';
+  }
+}
+
+const validateSymbol = Symbol('kato-validate');
 
 //参数验证中间件
 export default async function paramValidate(ctx: Context, next: Middleware) {
   //拿到所有的参数,并且挨个验证
-  const validate: Schema[] = ctx.method.method.__validate;
+  const validate: Schema[] = ctx.method.method[validateSymbol];
   if (validate instanceof Array) {
     ctx.method.parameters
       .map((p, index) => ({
@@ -21,7 +29,7 @@ export default async function paramValidate(ctx: Context, next: Middleware) {
       .forEach(it => {
         const result = joi.validate(it.value, it.schema.label(it.name), {convert: false});
         if (result.error) {
-          throw new KatoRuntimeError(`${ctx.module.name}.${ctx.method.name} => ${result.error.message}`)
+          throw new KatoValidateError(result.error.message)
         }
       })
   }
@@ -33,7 +41,7 @@ export default async function paramValidate(ctx: Context, next: Middleware) {
 export function validate(...schemas: SchemaLike[]) {
   return function (target, key) {
     if (key && typeof target[key] === 'function') {
-      target[key].__validate = schemas.map(it => {
+      target[key][validateSymbol] = schemas.map(it => {
         if (it !== null && it !== undefined && !it['isJoi']) {
           return joi.compile(it);
         }
